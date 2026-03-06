@@ -1,0 +1,517 @@
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { fetchAsAdmin } from '../../utils/fetchWithRole';
+import '../../styles/playerNeoNoir.css';
+import { motion, AnimatePresence } from 'framer-motion';
+import usePlayerTheme from '../../hooks/usePlayerTheme';
+import AnimatedSidebar from '../../components/AnimatedSidebar';
+
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.1,
+      delayChildren: 0.2
+    }
+  }
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 20 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { type: 'spring', stiffness: 100, damping: 12 }
+  }
+};
+
+
+const AdminDashboard = () => {
+  const [isDark, toggleTheme] = usePlayerTheme();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
+  const [loading, setLoading] = useState(true);
+  const [savingMessageId, setSavingMessageId] = useState('');
+  const [messageEdits, setMessageEdits] = useState({});
+  const [messageSaveUi, setMessageSaveUi] = useState({});
+  const [dashboardData, setDashboardData] = useState({
+    adminName: 'Admin',
+    stats: { players: 0, organizers: 0, coordinators: 0, tournaments: 0, revenue: 0 },
+    messages: [],
+    meetings: []
+  });
+  const [visibleRows, setVisibleRows] = useState(5);
+
+  const onResize = useCallback(() => {
+    const mobile = window.innerWidth <= 768;
+    setIsMobile(mobile);
+    if (!mobile) setSidebarOpen(true);
+  }, []);
+
+  useEffect(() => {
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [onResize]);
+
+  const fetchDashboard = useCallback(async () => {
+    try {
+      setLoading(true);
+      const res = await fetchAsAdmin('/admin/api/dashboard');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setDashboardData({
+        adminName: data?.adminName || 'Admin',
+        stats: data?.stats || { players: 0, organizers: 0, coordinators: 0, tournaments: 0, revenue: 0 },
+        messages: Array.isArray(data?.contactMessages) ? data.contactMessages : [],
+        meetings: Array.isArray(data?.meetings) ? data.meetings : []
+      });
+    } catch (e) {
+      console.error('Failed to load dashboard', e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchDashboard(); }, [fetchDashboard]);
+
+  const adminLinks = [
+    { path: '/admin/organizer_management', label: 'Manage Organizers', icon: 'fas fa-users-cog' },
+    { path: '/admin/coordinator_management', label: 'Manage Coordinators', icon: 'fas fa-user-tie' },
+    { path: '/admin/player_management', label: 'Manage Players', icon: 'fas fa-user-tie' },
+    { path: '/admin/admin_tournament_management', label: 'Tournament Approvals', icon: 'fas fa-trophy' },
+    { path: '/admin/payments', label: 'Payments & Subscriptions', icon: 'fas fa-money-bill-wave' },
+    { path: '/admin/growth_analytics', label: 'Growth Analytics', icon: 'fas fa-chart-area' },
+    { path: '/admin/organizer_analytics', label: 'Organizer Analytics', icon: 'fas fa-chart-line' }
+  ];
+
+  const moderationMessages = useMemo(
+    () => dashboardData.messages.filter((m) => String(m?.status || 'pending').toLowerCase() !== 'resolved'),
+    [dashboardData.messages]
+  );
+  const visibleMessages = useMemo(() => moderationMessages.slice(0, visibleRows), [moderationMessages, visibleRows]);
+  const statusClass = (status = 'pending') => String(status).toLowerCase().replace('_', '-');
+  const ensureMessageState = (msg) => ({
+    status: msg?.status === 'new' ? 'pending' : (msg?.status || 'pending'),
+    internal_note: msg?.internal_note || ''
+  });
+  const getMessageEdit = (msg) => messageEdits[msg?._id] || ensureMessageState(msg);
+
+  const handleMessageEdit = (msg, key, value) => {
+    if (!msg?._id) return;
+    setMessageEdits((prev) => ({
+      ...prev,
+      [msg._id]: {
+        ...ensureMessageState(msg),
+        ...(prev[msg._id] || {}),
+        [key]: value
+      }
+    }));
+    setMessageSaveUi((prev) => ({
+      ...prev,
+      [msg._id]: { state: 'idle', error: '' }
+    }));
+  };
+
+  const saveMessageStatus = async (msg) => {
+    if (!msg?._id) return;
+    const msgId = msg._id;
+    try {
+      setSavingMessageId(msgId);
+      setMessageSaveUi((prev) => ({ ...prev, [msgId]: { state: 'saving', error: '' } }));
+      const edit = getMessageEdit(msg);
+      const res = await fetchAsAdmin(`/admin/api/contact/${msgId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: edit.status, internal_note: edit.internal_note })
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.error || 'Failed to update message');
+      setDashboardData((prev) => ({
+        ...prev,
+        messages: prev.messages.map((m) => (m._id === msgId ? { ...m, ...(payload?.message || {}) } : m))
+      }));
+      setMessageSaveUi((prev) => ({ ...prev, [msgId]: { state: 'saved', error: '' } }));
+      setTimeout(() => {
+        setMessageSaveUi((prev) => {
+          if (!prev[msgId] || prev[msgId].state !== 'saved') return prev;
+          return { ...prev, [msgId]: { state: 'idle', error: '' } };
+        });
+      }, 1800);
+    } catch (err) {
+      const message = err?.message || 'Failed to update message';
+      console.error(err);
+      setMessageSaveUi((prev) => ({ ...prev, [msgId]: { state: 'error', error: message } }));
+    } finally {
+      setSavingMessageId((prev) => (prev === msgId ? '' : prev));
+    }
+  };
+
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex' }}>
+      <style>{`
+        :root {
+          --card-bg-neo: rgba(30, 41, 59, 0.7);
+          --card-border-neo: rgba(148, 163, 184, 0.1);
+          --text-primary: #e2e8f0;
+          --text-secondary: #94a3b8;
+        }
+        .dashboard-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+          gap: 1.5rem;
+          margin-bottom: 2rem;
+        }
+        .stat-card-neo {
+          background: var(--card-bg);
+          backdrop-filter: blur(12px);
+          border: 1px solid var(--card-border);
+          border-radius: 16px;
+          padding: 1.5rem;
+          display: flex;
+          align-items: center;
+          gap: 1.5rem;
+          transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .stat-icon-wrapper {
+          width: 60px;
+          height: 60px;
+          border-radius: 14px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 1.8rem;
+        }
+        .stat-content h3 {
+          font-family: 'Cinzel', serif;
+          font-size: 2rem;
+          margin: 0;
+          line-height: 1.2;
+        }
+        .stat-content p {
+          color: var(--text-color);
+          margin: 0;
+          font-size: 0.9rem;
+          opacity: 0.8;
+          text-transform: uppercase;
+          letter-spacing: 1px;
+        }
+        .section-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 1.5rem;
+        }
+        .section-title {
+          font-family: 'Cinzel', serif;
+          color: var(--sea-green);
+          font-size: 1.5rem;
+          display: flex;
+          align-items: center;
+          gap: 0.8rem;
+        }
+        .messages-list {
+          display: flex;
+          flex-direction: column;
+          gap: 1rem;
+        }
+        .stats-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+          gap: 1rem;
+          margin-bottom: 1.5rem;
+        }
+        .stats-card {
+          background: rgba(30, 41, 59, 0.4);
+          border: 1px solid var(--card-border);
+          border-radius: 14px;
+          padding: 1rem;
+        }
+        .stats-card h4 {
+          margin: 0;
+          font-size: 0.85rem;
+          color: var(--text-secondary);
+          text-transform: uppercase;
+          letter-spacing: 0.8px;
+        }
+        .stats-card p {
+          margin: 0.55rem 0 0;
+          font-size: 1.3rem;
+          color: var(--sea-green);
+          font-family: 'Cinzel', serif;
+        }
+        .message-card {
+          background: rgba(30, 41, 59, 0.4);
+          backdrop-filter: blur(8px);
+          border: 1px solid var(--card-border);
+          border-radius: 16px;
+          padding: 1.5rem;
+          transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+          position: relative;
+          overflow: hidden;
+        }
+        .message-card:hover {
+          transform: translateY(-5px) scale(1.02);
+          background: rgba(30, 41, 59, 0.7);
+          border-color: var(--sea-green);
+          box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5), 0 0 15px rgba(20, 184, 166, 0.2);
+        }
+        .message-card::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 4px;
+          height: 100%;
+          background: var(--sea-green);
+          opacity: 0;
+          transition: opacity 0.3s ease;
+        }
+        .message-card:hover::before {
+          opacity: 1;
+        }
+        .message-header {
+          display: flex;
+          justify-content: space-between;
+          margin-bottom: 0.5rem;
+          font-size: 0.9rem;
+          color: var(--sea-green);
+          font-weight: bold;
+        }
+        .message-body {
+          color: var(--text-color);
+          line-height: 1.5;
+          opacity: 0.9;
+        }
+        .message-date {
+          font-size: 0.8rem;
+          opacity: 0.6;
+          margin-top: 0.5rem;
+          text-align: right;
+        }
+        .view-more-btn {
+          background: transparent;
+          border: 1px solid var(--sea-green);
+          color: var(--sea-green);
+          padding: 0.5rem 1.5rem;
+          border-radius: 20px;
+          cursor: pointer;
+          font-family: 'Cinzel', serif;
+          transition: all 0.3s ease;
+        }
+        .view-more-btn:hover {
+          background: var(--sea-green);
+          color: var(--on-accent);
+        }
+        .input {
+          width: 100%;
+          padding: 0.55rem 0.75rem;
+          border-radius: 8px;
+          border: 1px solid var(--card-border);
+          background: rgba(15, 23, 42, 0.7);
+          color: var(--text-primary);
+        }
+        .status-pill {
+          font-size: 0.75rem;
+          padding: 0.2rem 0.55rem;
+          border-radius: 999px;
+          text-transform: uppercase;
+          letter-spacing: 0.4px;
+        }
+        .status-pill.pending { background: rgba(245,158,11,0.2); color: #fcd34d; }
+        .status-pill.in-progress { background: rgba(245,158,11,0.2); color: #fcd34d; }
+        .status-pill.resolved { background: rgba(34,197,94,0.2); color: #86efac; }
+        .status-pill.spam { background: rgba(239,68,68,0.2); color: #fca5a5; }
+      `}</style>
+      
+      <AnimatedSidebar links={adminLinks} logo={<i className="fas fa-chess-king" />} title="ChessHive" />
+
+      <div className="content player-neo" style={{ padding: '2rem', width: '100%', marginLeft: isMobile ? 0 : '0' }}>
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+          <div>
+            <motion.h1
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.6 }}
+              style={{ margin: 0, fontFamily: 'Cinzel, serif', color: 'var(--sea-green)' }}
+            >
+              Dashboard Overview
+            </motion.h1>
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.2 }}
+              style={{ color: 'var(--text-color)', opacity: 0.7, marginTop: '0.5rem' }}
+            >
+              Welcome back, {dashboardData.adminName}
+            </motion.p>
+          </div>
+          <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={toggleTheme}
+              className="theme-toggle-btn"
+              style={{
+                width: 40, height: 40, borderRadius: '50%',
+                border: '1px solid var(--card-border)',
+                background: 'var(--card-bg)',
+                color: 'var(--text-color)',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center'
+              }}
+            >
+              <i className={isDark ? "fas fa-sun" : "fas fa-moon"} />
+            </motion.button>
+          </div>
+        </div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          style={{ background: 'var(--card-bg)', borderRadius: '16px', border: '1px solid var(--card-border)', padding: '1.5rem', marginBottom: '1.5rem' }}
+        >
+          <h2 className="section-title" style={{ marginBottom: '1rem' }}>
+            <i className="fas fa-chart-pie" />
+            Key Metrics
+          </h2>
+          <div className="stats-grid">
+            <div className="stats-card"><h4>Players</h4><p>{dashboardData.stats.players || 0}</p></div>
+            <div className="stats-card"><h4>Organizers</h4><p>{dashboardData.stats.organizers || 0}</p></div>
+            <div className="stats-card"><h4>Coordinators</h4><p>{dashboardData.stats.coordinators || 0}</p></div>
+            <div className="stats-card"><h4>Tournaments</h4><p>{dashboardData.stats.tournaments || 0}</p></div>
+            <div className="stats-card"><h4>Total Revenue</h4><p>INR {Number(dashboardData.stats.revenue || 0).toFixed(2)}</p></div>
+          </div>
+          <div>
+            <h3 className="section-title" style={{ fontSize: '1.2rem', marginBottom: '0.8rem' }}>
+              <i className="fas fa-calendar-alt" />
+              Upcoming Meetings
+            </h3>
+            {(dashboardData.meetings || []).length === 0 ? (
+              <div style={{ opacity: 0.7 }}>No meetings in the next 3 days.</div>
+            ) : (
+              <div style={{ display: 'grid', gap: '0.65rem' }}>
+                {dashboardData.meetings.slice(0, 5).map((meeting, idx) => (
+                  <div key={meeting._id || idx} style={{ padding: '0.75rem 1rem', border: '1px solid var(--card-border)', borderRadius: 12, background: 'rgba(30, 41, 59, 0.35)' }}>
+                    <div style={{ fontWeight: 700 }}>{meeting.title || 'Meeting'}</div>
+                    <div style={{ opacity: 0.75, fontSize: '0.9rem' }}>
+                      {meeting.date ? new Date(meeting.date).toLocaleDateString() : 'Date TBD'} {meeting.time ? `at ${meeting.time}` : ''}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </motion.div>
+
+        {/* Contact moderation section */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4 }}
+          style={{ background: 'var(--card-bg)', borderRadius: '16px', border: '1px solid var(--card-border)', padding: '2rem' }}
+        >
+          <div className="section-header">
+            <h2 className="section-title">
+              <i className="fas fa-envelope-open-text" />
+              Recent Messages
+            </h2>
+            <span style={{ fontSize: '0.9rem', opacity: 0.7 }}>
+              Showing {visibleMessages.length} of {moderationMessages.length}
+            </span>
+          </div>
+
+          <div className="messages-list">
+            <AnimatePresence>
+              {visibleMessages.length === 0 ? (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  style={{ textAlign: 'center', padding: '2rem', opacity: 0.6 }}
+                >
+                  <i className="fas fa-inbox" style={{ fontSize: '2rem', marginBottom: '1rem', display: 'block' }} />
+                  No new messages
+                </motion.div>
+              ) : (
+                visibleMessages.map((msg, idx) => (
+                  <motion.div
+                    key={msg._id || idx}
+                    variants={itemVariants}
+                    initial="hidden"
+                    animate="visible"
+                    className="message-card"
+                  >
+                    {(() => {
+                      const edit = getMessageEdit(msg);
+                      const currentStatus = String(edit.status || 'pending').toLowerCase();
+                      const saveState = messageSaveUi[msg?._id]?.state || 'idle';
+                      const saveError = messageSaveUi[msg?._id]?.error || '';
+                      const isSaving = savingMessageId === msg._id || saveState === 'saving';
+                      return (
+                        <>
+                    <div className="message-header">
+                      <span>{msg.name} ({msg.email})</span>
+                      <span style={{ display: 'inline-flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <span className={`status-pill ${statusClass(edit.status)}`}>{edit.status.replace('_', ' ')}</span>
+                        {new Date(msg.submission_date).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <div className="message-body">
+                      {msg.message}
+                    </div>
+                    <div style={{ marginTop: '0.75rem', display: 'grid', gap: '0.55rem' }}>
+                      <select
+                        value={edit.status}
+                        onChange={(e) => handleMessageEdit(msg, 'status', e.target.value)}
+                        className="input"
+                        style={{ maxWidth: 220 }}
+                      >
+                        <option value="pending" disabled={currentStatus === 'pending'}>Pending</option>
+                        <option value="in_progress" disabled={currentStatus === 'in_progress'}>In Progress</option>
+                        <option value="resolved" disabled={currentStatus === 'resolved'}>Resolved</option>
+                        <option value="spam" disabled={currentStatus === 'spam'}>Spam</option>
+                      </select>
+                      <textarea
+                        value={edit.internal_note}
+                        onChange={(e) => handleMessageEdit(msg, 'internal_note', e.target.value)}
+                        placeholder="Internal note (optional)"
+                        className="input"
+                        rows={2}
+                      />
+                      <div>
+                        <button
+                          className="view-more-btn"
+                          disabled={isSaving}
+                          onClick={() => saveMessageStatus(msg)}
+                        >
+                          {isSaving ? 'Saving...' : (saveState === 'saved' ? 'Saved' : 'Save Status')}
+                        </button>
+                        {saveState === 'error' && (
+                          <div style={{ marginTop: '0.45rem', color: '#fca5a5', fontSize: '0.85rem' }}>{saveError}</div>
+                        )}
+                      </div>
+                    </div>
+                        </>
+                      );
+                    })()}
+                  </motion.div>
+                ))
+              )}
+            </AnimatePresence>
+          </div>
+
+          {moderationMessages.length > visibleRows && (
+            <div style={{ textAlign: 'center', marginTop: '1.5rem' }}>
+              <button className="view-more-btn" onClick={() => setVisibleRows(v => v + 5)}>
+                Load More Messages
+              </button>
+            </div>
+          )}
+        </motion.div>
+      </div>
+    </div>
+  );
+};
+
+export default AdminDashboard;
