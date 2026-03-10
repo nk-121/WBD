@@ -55,6 +55,7 @@ function PlayerStore() {
   // Orders state
   const [orders, setOrders] = useState([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
+  const [lightbox, setLightbox] = useState(null); // { images: [], index: 0, zoom: 1 }
   const [trackingOrder, setTrackingOrder] = useState(null);
   const [orderFilter, setOrderFilter] = useState('all');
   const [orderStatusOpen, setOrderStatusOpen] = useState(false);
@@ -492,6 +493,27 @@ function PlayerStore() {
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes fadeIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
         .fade-in{ animation:fadeIn 0.3s ease; }
+
+        /* ─── Lightbox ─── */
+        .lightbox-overlay{ position:fixed; inset:0; background:rgba(0,0,0,0.92); display:flex; align-items:center; justify-content:center; z-index:2000; }
+        .lightbox-inner{ position:relative; display:flex; flex-direction:column; align-items:center; justify-content:center; width:100%; height:100%; padding:1rem; box-sizing:border-box; }
+        .lightbox-img-wrap{ display:flex; align-items:center; justify-content:center; flex:1; width:100%; overflow:hidden; cursor:zoom-in; }
+        .lightbox-img-wrap.zoomed{ cursor:zoom-out; }
+        .lightbox-img{ max-width:90vw; max-height:75vh; object-fit:contain; border-radius:8px; transition:transform 0.2s; user-select:none; }
+        .lightbox-close{ position:absolute; top:1rem; right:1rem; background:rgba(255,255,255,0.12); border:none; color:#fff; width:40px; height:40px; border-radius:50%; font-size:1.1rem; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:background 0.2s; z-index:10; }
+        .lightbox-close:hover{ background:rgba(255,255,255,0.25); }
+        .lightbox-arrow{ position:absolute; top:50%; transform:translateY(-50%); background:rgba(255,255,255,0.12); border:none; color:#fff; width:44px; height:44px; border-radius:50%; font-size:1.1rem; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:background 0.2s; z-index:10; }
+        .lightbox-arrow:hover{ background:rgba(255,255,255,0.25); }
+        .lightbox-arrow.prev{ left:1rem; }
+        .lightbox-arrow.next{ right:1rem; }
+        .lightbox-zoom-bar{ display:flex; align-items:center; gap:0.6rem; margin-top:0.75rem; }
+        .lightbox-zoom-btn{ background:rgba(255,255,255,0.12); border:none; color:#fff; width:36px; height:36px; border-radius:50%; font-size:1rem; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:background 0.2s; }
+        .lightbox-zoom-btn:hover{ background:rgba(255,255,255,0.25); }
+        .lightbox-zoom-btn:disabled{ opacity:0.35; cursor:default; }
+        .lightbox-dots{ display:flex; gap:0.4rem; margin-top:0.6rem; }
+        .lightbox-dot{ width:8px; height:8px; border-radius:50%; background:rgba(255,255,255,0.3); cursor:pointer; transition:background 0.2s; border:none; padding:0; }
+        .lightbox-dot.active{ background:#fff; }
+        .lightbox-counter{ color:rgba(255,255,255,0.6); font-size:0.8rem; margin-top:0.35rem; }
       `}</style>
 
       <div className="page">
@@ -618,7 +640,9 @@ function PlayerStore() {
                   const currentImage = images[selected] || '';
                   return (
                     <div key={product._id} className="product-card">
-                      <div className="product-img">
+                      <div className="product-img"
+                      style={{ cursor: images.length > 0 ? 'zoom-in' : 'default' }}
+                      onClick={() => images.length > 0 && setLightbox({ images, index: selected, zoom: 1 })}>
                         {currentImage
                           ? <img src={currentImage} alt={product.name} onError={e => { e.target.style.display = 'none'; }} />
                           : <i className="fas fa-box-open" style={{ fontSize: '3rem', color: 'var(--sea-green)', opacity: 0.3 }} />}
@@ -920,6 +944,87 @@ function PlayerStore() {
             })}
           </div>
         )}
+        {/* ─── Image Lightbox ─── */}
+{lightbox && (
+  <div
+    className="lightbox-overlay"
+    onClick={() => setLightbox(null)}
+  >
+    <div className="lightbox-inner" onClick={e => e.stopPropagation()}>
+      {/* Close */}
+      <button className="lightbox-close" onClick={() => setLightbox(null)}>
+        <i className="fas fa-times" />
+      </button>
+
+      {/* Prev Arrow */}
+      {lightbox.images.length > 1 && (
+        <button
+          className="lightbox-arrow prev"
+          onClick={() => setLightbox(lb => ({ ...lb, index: (lb.index - 1 + lb.images.length) % lb.images.length, zoom: 1 }))}
+        >
+          <i className="fas fa-chevron-left" />
+        </button>
+      )}
+
+      {/* Image */}
+      <div
+        className={`lightbox-img-wrap${lightbox.zoom > 1 ? ' zoomed' : ''}`}
+        onClick={() => setLightbox(lb => ({ ...lb, zoom: lb.zoom > 1 ? 1 : 2.2 }))}
+      >
+        <img
+          src={lightbox.images[lightbox.index]}
+          alt={`Image ${lightbox.index + 1}`}
+          className="lightbox-img"
+          style={{ transform: `scale(${lightbox.zoom})` }}
+          draggable={false}
+        />
+      </div>
+
+      {/* Next Arrow */}
+      {lightbox.images.length > 1 && (
+        <button
+          className="lightbox-arrow next"
+          onClick={() => setLightbox(lb => ({ ...lb, index: (lb.index + 1) % lb.images.length, zoom: 1 }))}
+        >
+          <i className="fas fa-chevron-right" />
+        </button>
+      )}
+
+      {/* Zoom controls */}
+      <div className="lightbox-zoom-bar">
+        <button
+          className="lightbox-zoom-btn"
+          onClick={() => setLightbox(lb => ({ ...lb, zoom: Math.max(1, +(lb.zoom - 0.5).toFixed(1)) }))}
+          disabled={lightbox.zoom <= 1}
+        ><i className="fas fa-search-minus" /></button>
+        <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.82rem', minWidth: 36, textAlign: 'center' }}>
+          {Math.round(lightbox.zoom * 100)}%
+        </span>
+        <button
+          className="lightbox-zoom-btn"
+          onClick={() => setLightbox(lb => ({ ...lb, zoom: Math.min(4, +(lb.zoom + 0.5).toFixed(1)) }))}
+          disabled={lightbox.zoom >= 4}
+        ><i className="fas fa-search-plus" /></button>
+      </div>
+
+      {/* Dot indicators */}
+      {lightbox.images.length > 1 && (
+        <div className="lightbox-dots">
+          {lightbox.images.map((_, i) => (
+            <button
+              key={i}
+              className={`lightbox-dot ${i === lightbox.index ? 'active' : ''}`}
+              onClick={() => setLightbox(lb => ({ ...lb, index: i, zoom: 1 }))}
+            />
+          ))}
+        </div>
+      )}
+      <div className="lightbox-counter">
+        {lightbox.images.length > 1 ? `${lightbox.index + 1} / ${lightbox.images.length}` : ''}
+      </div>
+    </div>
+  </div>
+)}
 
         {/* ─── Purchase Confirmation Modal ─── */}
         {purchaseModal && purchaseStep !== 'gateway' && (
