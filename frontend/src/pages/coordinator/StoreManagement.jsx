@@ -669,9 +669,9 @@ function StoreManagement() {
                     <div
                       key={p._id}
                       className="product-card"
-                      onClick={() => openProductAnalytics(p)}
+                      onClick={() => navigate(`/coordinator/store_management/product/${p._id}`)}
                       style={{ cursor: 'pointer' }}
-                      title="Click to view product analytics"
+                      title="Open product profile"
                     >
                       <img
                         src={currentImage}
@@ -718,7 +718,7 @@ function StoreManagement() {
                           </div>
                         )}
                         <div style={{ fontSize: '0.78rem', opacity: 0.75, marginBottom: '0.5rem' }}>
-                          Click card to view full product stats
+                          Click card to open product profile
                         </div>
                         <button
                           className="btn-primary"
