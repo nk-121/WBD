@@ -46,6 +46,7 @@ import CoordinatorPlayerStats from '../pages/coordinator/CoordinatorPlayerStats'
 import CoordinatorRankings from '../pages/coordinator/CoordinatorRankings';
 import StoreManagement from '../pages/coordinator/StoreManagement';
 import ProductDetail from '../pages/coordinator/ProductDetail';
+
 import TournamentManagement from '../pages/coordinator/TournamentManagement';
 import TournamentDetails from '../pages/coordinator/TournamentDetails';
 import TournamentComplaints from '../pages/coordinator/TournamentComplaints';
@@ -148,7 +149,7 @@ export default function AppRoutes() {
       <Route path="/coordinator/blogs" element={<AnimatedPageLayout><CoordinatorBlogs /></AnimatedPageLayout>} />
       <Route path="/coordinator/streaming_control" element={<AnimatedPageLayout><CoordinatorStreamingControl /></AnimatedPageLayout>} />
       <Route path="/coordinator/chess_events" element={<AnimatedPageLayout><CoordinatorChessEvents /></AnimatedPageLayout>} />
-
+      
       {/* ═══ Organizer Routes ═══ */}
       <Route path="/organizer/coordinator_management" element={<AnimatedPageLayout><CoordinatorManagement /></AnimatedPageLayout>} />
       <Route path="/organizer/coordinator_performance" element={<AnimatedPageLayout><CoordinatorPerformance /></AnimatedPageLayout>} />
