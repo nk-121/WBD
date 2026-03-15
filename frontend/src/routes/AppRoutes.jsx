@@ -54,6 +54,7 @@ import CoordinatorBlogs from '../pages/coordinator/CoordinatorBlogs';
 import CoordinatorStreamingControl from '../pages/coordinator/CoordinatorStreamingControl';
 import CoordinatorChessEvents from '../pages/coordinator/CoordinatorChessEvents';
 
+
 // ─── Organizer Pages ─────────────────────────────────────────────
 import CoordinatorManagement from '../pages/organizer/CoordinatorManagement';
 import CoordinatorPerformance from '../pages/organizer/CoordinatorPerformance';
